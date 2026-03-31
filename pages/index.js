@@ -1,0 +1,259 @@
+import { useState } from 'react';
+import Head from 'next/head';
+import {
+  Container,
+  Typography,
+  TextField,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Grid,
+  Alert,
+  List,
+  ListItem,
+  ListItemText,
+  Chip,
+  Divider,
+  Box,
+  Switch,
+  FormControlLabel,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow
+} from '@mui/material';
+
+export default function Home() {
+  const [url, setUrl] = useState('https://');
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [headlessRender, setHeadlessRender] = useState(false);
+
+  const onScan = async (event) => {
+    event.preventDefault();
+    setError('');
+    setReport(null);
+
+    try {
+      const normalizedUrl = new URL(url).toString();
+      setLoading(true);
+      const query = headlessRender ? '?headless=true' : '';
+
+      const res = await fetch(`/api/scan?url=${encodeURIComponent(normalizedUrl)}${query}`);
+      const payload = await res.json();
+
+      if (!res.ok) {
+        setError(payload.message || 'Scan failed.');
+      } else {
+        setReport(payload);
+      }
+    } catch (err) {
+      setError('Invalid URL or scan error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reportSection = () => {
+    if (!report) return null;
+
+    const renderHeadings = (type) => report.headings[type]?.map((text, idx) => <ListItem key={`${type}-${idx}`}><ListItemText primary={text || '<empty>'} /></ListItem>);
+
+    return (
+      <>
+        <Card elevation={3} sx={{ mt: 4 }}>
+          <CardHeader title={`SEO Report: ${report.url}`} subheader={`Final URL: ${report.finalUrl || report.url}`} />
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}>
+                <Typography variant="subtitle2">Status</Typography>
+                <Chip label={report.status} color={report.status === 200 ? 'success' : 'error'} size="small" />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Typography variant="subtitle2">Fetch</Typography>
+                <Chip label={`${report.fetchTime}ms`} size="small" />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Typography variant="subtitle2">Redirects</Typography>
+                <Chip label={`${report.redirectChain?.length || 0}`} size="small" />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6">Meta</Typography>
+                <List dense>
+                  <ListItem><ListItemText primary="Title" secondary={report.title || '—'} /></ListItem>
+                  <ListItem><ListItemText primary="Description" secondary={report.metaDescription || '—'} /></ListItem>
+                  <ListItem><ListItemText primary="Canonical" secondary={report.canonical || '—'} /></ListItem>
+                  <ListItem><ListItemText primary="Robots" secondary={report.robots || '—'} /></ListItem>
+                  <ListItem><ListItemText primary="Viewport" secondary={report.viewport || '—'} /></ListItem>
+                  <ListItem><ListItemText primary="Hreflang" secondary={`${report.metaCompleteness?.hreflang || 0}`} /></ListItem>
+                </List>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6">TLS</Typography>
+                <List dense>
+                  <ListItem><ListItemText primary="Protocol" secondary={report.tlsInfo?.protocol || 'N/A'} /></ListItem>
+                  <ListItem><ListItemText primary="Issuer" secondary={report.tlsInfo?.certificate?.issuer?.O || 'N/A'} /></ListItem>
+                  <ListItem><ListItemText primary="Valid from" secondary={report.tlsInfo?.certificate?.validFrom || 'N/A'} /></ListItem>
+                  <ListItem><ListItemText primary="Valid to" secondary={report.tlsInfo?.certificate?.validTo || 'N/A'} /></ListItem>
+                </List>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6">Structured Data</Typography>
+                <List dense>
+                  <ListItem><ListItemText primary="JSON-LD" secondary={report.structuredData?.jsonLd?.length || 0} /></ListItem>
+                  <ListItem><ListItemText primary="Microdata" secondary={report.structuredData?.microdata?.length || 0} /></ListItem>
+                  <ListItem><ListItemText primary="RDFa" secondary={report.structuredData?.rdfa?.length || 0} /></ListItem>
+                </List>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6">Social</Typography>
+                <List dense>
+                  <ListItem><ListItemText primary="OpenGraph title" secondary={report.social?.openGraph?.title || 'missing'} /></ListItem>
+                  <ListItem><ListItemText primary="Twitter title" secondary={report.social?.twitter?.title || 'missing'} /></ListItem>
+                </List>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6">Headings</Typography>
+                <Grid container>
+                  {['h1','h2','h3','h4','h5','h6'].map((h) => (
+                    <Grid item xs={6} sm={4} key={h}>
+                      <Typography variant="subtitle2">{h.toUpperCase()} ({report.headings?.[h]?.length || 0})</Typography>
+                    </Grid>
+                  ))}
+                </Grid>
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" color={report.headingIssues?.length ? 'error' : 'success.main'}>
+                    {report.headingIssues?.length ? report.headingIssues.join(' — ') : 'Heading structure looks good'}
+                  </Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6">Link audit</Typography>
+                <Typography variant="body2">Internal: {report.linkSummary?.internal || 0}, External: {report.linkSummary?.external || 0}, Broken: {report.brokenLinks || 0}</Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6">Image audit</Typography>
+                <Typography variant="body2">Total images: {report.images?.length || 0}, Missing alt: {report.accessibility?.missingAlt || 0}</Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6">Performance</Typography>
+                <Typography variant="body2">Page weight: {report.headless?.pageWeight != null ? `${report.headless.pageWeight} bytes` : 'N/A'}</Typography>
+                <Typography variant="body2">LCP: {report.headless?.lcp != null ? `${report.headless.lcp} ms` : 'N/A'}</Typography>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Headless render snapshot" />
+          <CardContent>
+            {report.headless?.error ? (
+              <Alert severity="warning">Headless rendering failed: {report.headless.error}</Alert>
+            ) : report.headless?.renderedHTML ? (
+              <Box sx={{ backgroundColor: '#f4f6f8', p: 2, borderRadius: 1, maxHeight: 260, overflow: 'auto' }}>
+                <Typography component="pre" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12 }}>
+                  {report.headless.renderedHTML.slice(0, 1500)}...
+                </Typography>
+              </Box>
+            ) : (
+              <Typography variant="body2">Headless rendering not enabled.</Typography>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Broken and redirecting link details" />
+          <CardContent>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>URL</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Redirect</TableCell>
+                  <TableCell>Type</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(report.linkDetails || []).slice(0, 20).map((link, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 }}>{link.href}</TableCell>
+                    <TableCell>{link.status || 'error'}</TableCell>
+                    <TableCell>{link.redirected ? 'yes' : 'no'}</TableCell>
+                    <TableCell>{link.isExternal ? 'external' : 'internal'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Rich snippet preview" />
+          <CardContent>
+            <Typography variant="subtitle1">{report.seoPreview?.title}</Typography>
+            <Typography variant="body2" color="text.secondary">{report.seoPreview?.description}</Typography>
+            <Typography variant="caption" color="text.secondary">{report.seoPreview?.url}</Typography>
+          </CardContent>
+        </Card>
+      </>
+    );
+  };
+
+  return (
+    <>
+      <Head>
+        <title>SEO Scanner | GDG Vibe Coding</title>
+        <meta name="viewport" content="initial-scale=1.0, width=device-width" />
+      </Head>
+
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        <Typography variant="h3" component="h1" gutterBottom>
+          Website SEO Scanner
+        </Typography>
+
+        <Box sx={{ mb: 3 }}>
+          <FormControlLabel
+            control={<Switch checked={headlessRender} onChange={(e) => setHeadlessRender(e.target.checked)} />}
+            label="Enable headless JS render (slow)"
+          />
+        </Box>
+
+        <Card variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={9}>
+              <TextField
+                fullWidth
+                label="Website URL"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com"
+                type="url"
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Button fullWidth variant="contained" size="large" onClick={onScan} disabled={loading}>
+                {loading ? 'Scanning…' : 'Scan site'}
+              </Button>
+            </Grid>
+          </Grid>
+        </Card>
+
+        {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+
+        {reportSection()}
+      </Container>
+    </>
+  );
+}
