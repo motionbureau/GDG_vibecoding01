@@ -31,6 +31,11 @@ export default function Home() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [headlessRender, setHeadlessRender] = useState(false);
+  const [detailsVisible, setDetailsVisible] = useState({ issues: false, keywords: false, sitemap: false, ga: false });
+
+  const toggleDetail = (section) => {
+    setDetailsVisible((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const onScan = async (event) => {
     event.preventDefault();
@@ -81,6 +86,15 @@ export default function Home() {
                 <Chip label={`${report.redirectChain?.length || 0}`} size="small" />
               </Grid>
 
+              <Grid item xs={12} md={12}>
+                <Typography variant="h5" sx={{ mb: 1 }}>SEO score: {report.seoScore ?? 'N/A'} / 100</Typography>
+                <Chip
+                  label={`SEO score: ${report.seoScore ?? 'N/A'}`}
+                  color={report.seoScore != null ? (report.seoScore >= 80 ? 'success' : report.seoScore >= 60 ? 'warning' : 'error') : 'default'}
+                  size="small"
+                />
+              </Grid>
+
               <Grid item xs={12} md={6}>
                 <Typography variant="h6">Meta</Typography>
                 <List dense>
@@ -89,6 +103,18 @@ export default function Home() {
                   <ListItem><ListItemText primary="Canonical" secondary={report.canonical || '—'} /></ListItem>
                   <ListItem><ListItemText primary="Robots" secondary={report.robots || '—'} /></ListItem>
                   <ListItem><ListItemText primary="Viewport" secondary={report.viewport || '—'} /></ListItem>
+                  <ListItem>
+                    <ListItemText
+                      primary="Title length"
+                      secondary={`${report.titleLength || 0} / 60${report.titleLength > 60 ? ' — Too long; keep it under 60 characters.' : ''}`}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText
+                      primary="Description length"
+                      secondary={`${report.descriptionLength || 0} / 160${report.descriptionLength > 160 ? ' — Too long; keep it under 160 characters.' : ''}`}
+                    />
+                  </ListItem>
                   <ListItem><ListItemText primary="Hreflang" secondary={`${report.metaCompleteness?.hreflang || 0}`} /></ListItem>
                 </List>
               </Grid>
@@ -146,12 +172,111 @@ export default function Home() {
                 <Typography variant="body2">Total images: {report.images?.length || 0}, Missing alt: {report.accessibility?.missingAlt || 0}</Typography>
               </Grid>
 
-              <Grid item xs={12}>
-                <Typography variant="h6">Performance</Typography>
-                <Typography variant="body2">Page weight: {report.headless?.pageWeight != null ? `${report.headless.pageWeight} bytes` : 'N/A'}</Typography>
-                <Typography variant="body2">LCP: {report.headless?.lcp != null ? `${report.headless.lcp} ms` : 'N/A'}</Typography>
-              </Grid>
             </Grid>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Issues to fix" />
+          <CardContent>
+            <Typography variant="body2" gutterBottom>
+              {report.issuesToFix?.length ? `${report.issuesToFix.length} issue${report.issuesToFix.length === 1 ? '' : 's'} found.` : 'No major issues detected.'}
+            </Typography>
+            <Button size="small" onClick={() => toggleDetail('issues')}>See Results</Button>
+            {detailsVisible.issues && (
+              <Table size="small" sx={{ mt: 2 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Rank</TableCell>
+                    <TableCell>Issue</TableCell>
+                    <TableCell>Impact</TableCell>
+                    <TableCell>Detail</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(report.issuesToFix || []).map((issue, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{idx + 1}</TableCell>
+                      <TableCell>{issue.issue}</TableCell>
+                      <TableCell>{issue.impact}</TableCell>
+                      <TableCell>{issue.detail}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Most common keywords" />
+          <CardContent>
+            <Typography variant="body2" gutterBottom>
+              {report.commonKeywords?.length ? 'Top keywords used on the page:' : 'No strong keywords were detected.'}
+            </Typography>
+            <Button size="small" onClick={() => toggleDetail('keywords')}>See Results</Button>
+            {detailsVisible.keywords && (
+              <Table size="small" sx={{ mt: 2 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Keyword</TableCell>
+                    <TableCell>Count</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(report.commonKeywords || []).map((keyword, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{keyword.keyword}</TableCell>
+                      <TableCell>{keyword.count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Sitemap check" />
+          <CardContent>
+            <Typography variant="body2" gutterBottom>
+              Sitemap XML: {report.robotsAndSitemap?.sitemapStatus === 200 ? 'Found' : 'Missing'}, Sitemap TXT: {report.robotsAndSitemap?.sitemapTxtStatus === 200 ? 'Found' : 'Missing'}
+            </Typography>
+            <Button size="small" onClick={() => toggleDetail('sitemap')}>See Results</Button>
+            {detailsVisible.sitemap && (
+              <List dense sx={{ mt: 2 }}>
+                <ListItem>
+                  <ListItemText primary="robots.txt" secondary={`${report.robotsAndSitemap?.robotsUrl || 'N/A'} (${report.robotsAndSitemap?.robotsStatus || 'N/A'})`} />
+                </ListItem>
+                <ListItem>
+                  <ListItemText primary="sitemap.xml" secondary={`${report.robotsAndSitemap?.sitemapUrl || 'N/A'} (${report.robotsAndSitemap?.sitemapStatus || 'N/A'})`} />
+                </ListItem>
+                <ListItem>
+                  <ListItemText primary="sitemap.txt" secondary={`${report.robotsAndSitemap?.sitemapTxtUrl || 'N/A'} (${report.robotsAndSitemap?.sitemapTxtStatus || 'N/A'})`} />
+                </ListItem>
+              </List>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ mt: 2 }}>
+          <CardHeader title="Google Analytics test" />
+          <CardContent>
+            <Typography variant="body2" gutterBottom>
+              {report.googleAnalytics?.found ? `Detected: ${report.googleAnalytics.types.join(', ')}` : 'No Google Analytics snippet found.'}
+            </Typography>
+            <Button size="small" onClick={() => toggleDetail('ga')}>See Results</Button>
+            {detailsVisible.ga && (
+              <Box sx={{ mt: 2 }}>
+                {report.googleAnalytics?.found ? (
+                  report.googleAnalytics.details.map((item, idx) => (
+                    <Typography key={idx} variant="body2">• {item}</Typography>
+                  ))
+                ) : (
+                  <Typography variant="body2">No analytics patterns were detected on this page.</Typography>
+                )}
+              </Box>
+            )}
           </CardContent>
         </Card>
 

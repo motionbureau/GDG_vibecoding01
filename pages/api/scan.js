@@ -64,10 +64,26 @@ const fetchRobotsAndSitemap = async (targetUrl) => {
     const sitemapUrl = new URL('/sitemap.xml', root).toString();
     const sitemapRes = await got(sitemapUrl, { throwHttpErrors: false, timeout: { request: 10000 } });
     const sitemapBody = sitemapRes.statusCode === 200 ? sitemapRes.body : null;
-
     const sitemapCount = sitemapBody ? (sitemapBody.match(/<loc>/g) || []).length : 0;
 
-    return { robotsUrl, robotsStatus: robotsRes.statusCode, robotsBody, sitemapUrl, sitemapStatus: sitemapRes.statusCode, sitemapCount };
+    const sitemapTxtUrl = new URL('/sitemap.txt', root).toString();
+    const sitemapTxtRes = await got(sitemapTxtUrl, { throwHttpErrors: false, timeout: { request: 10000 } });
+    const sitemapTxtBody = sitemapTxtRes.statusCode === 200 ? sitemapTxtRes.body : null;
+    const sitemapTxtCount = sitemapTxtBody ? sitemapTxtBody.trim().split(/\r?\n/).filter(Boolean).length : 0;
+
+    return {
+      robotsUrl,
+      robotsStatus: robotsRes.statusCode,
+      robotsBody,
+      sitemapUrl,
+      sitemapStatus: sitemapRes.statusCode,
+      sitemapBody,
+      sitemapCount,
+      sitemapTxtUrl,
+      sitemapTxtStatus: sitemapTxtRes.statusCode,
+      sitemapTxtBody,
+      sitemapTxtCount
+    };
   } catch (err) {
     return { robotsError: err.message };
   }
@@ -97,6 +113,95 @@ const parseStructuredData = ($) => {
   });
 
   return { jsonLd: scripts, microdata, rdfa };
+};
+
+const extractKeywords = (text = '') => {
+  const stopwords = new Set([
+    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'not', 'are', 'you', 'your', 'was', 'but', 'all', 'any', 'can', 'its', 'our', 'has', 'had', 'will', 'who', 'what', 'when', 'where', 'why', 'how', 'into', 'about', 'they', 'their', 'there', 'been', 'more', 'than', 'also', 'other', 'which', 'while', 'use', 'used', 'each', 'some', 'these', 'such', 'most', 'over', 'only'
+  ]);
+  const words = (text || '').toLowerCase().match(/\b[a-z]{3,}\b/g) || [];
+  const counts = {};
+  words.forEach((word) => {
+    if (stopwords.has(word)) return;
+    counts[word] = (counts[word] || 0) + 1;
+  });
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([keyword, count]) => ({ keyword, count }));
+};
+
+const detectGoogleAnalytics = (html = '') => {
+  const patterns = [
+    { type: 'gtag', label: 'gtag.js / GA4', regex: /gtag\(['"]config['"]\s*,\s*['"][^'"]+['"]/i },
+    { type: 'gtm', label: 'Google Tag Manager', regex: /googletagmanager\.com\/gtm\.js/i },
+    { type: 'analytics.js', label: 'Google Analytics classic', regex: /google-analytics\.com\/analytics\.js/i },
+    { type: 'universal', label: 'Universal Analytics', regex: /ga\(['"]create['"]/i },
+    { type: 'UA', label: 'Universal Analytics ID', regex: /\bUA-\d{4,}-\d+\b/i },
+    { type: 'GA4', label: 'GA4 Measurement ID', regex: /\bG-[A-Z0-9]{6,}\b/i }
+  ];
+  const matches = patterns.filter((pattern) => pattern.regex.test(html));
+  return {
+    found: matches.length > 0,
+    types: [...new Set(matches.map((match) => match.type))],
+    details: [...new Set(matches.map((match) => match.label))]
+  };
+};
+
+const computeSeoScore = (data) => {
+  let score = 100;
+  if (!data.title) score -= 25;
+  if (!data.metaDescription) score -= 20;
+  if (data.headingIssues?.includes('Missing H1')) score -= 15;
+  if (data.headingIssues?.includes('Multiple H1 headers')) score -= 10;
+  if (!data.canonical) score -= 10;
+  if (!data.maybeMobileFriendly) score -= 5;
+  if (!data.robots) score -= 5;
+  score -= Math.min(20, (data.brokenLinks || 0) * 5);
+  score -= Math.min(15, (data.accessibility?.missingAlt || 0) * 2);
+  if (data.robotsAndSitemap?.sitemapStatus !== 200 && data.robotsAndSitemap?.sitemapTxtStatus !== 200) score -= 10;
+  if (data.linkSummary?.total === 0) score -= 10;
+  return Math.max(0, score);
+};
+
+const buildIssues = (data) => {
+  const issues = [];
+  if (!data.title) {
+    issues.push({ severity: 100, issue: 'Missing title tag', impact: 'High', detail: 'Add a unique title that describes the page content.' });
+  }
+  if (!data.metaDescription) {
+    issues.push({ severity: 95, issue: 'Missing meta description', impact: 'High', detail: 'Include a meta description under 160 characters.' });
+  }
+  if (data.headingIssues?.length) {
+    data.headingIssues.forEach((headingIssue) => {
+      if (headingIssue === 'Missing H1') {
+        issues.push({ severity: 90, issue: headingIssue, impact: 'High', detail: 'Add exactly one H1 heading to the page.' });
+      } else if (headingIssue === 'Multiple H1 headers') {
+        issues.push({ severity: 80, issue: headingIssue, impact: 'Medium', detail: 'Keep only one H1 to improve page structure.' });
+      } else {
+        issues.push({ severity: 70, issue: headingIssue, impact: 'Medium', detail: headingIssue });
+      }
+    });
+  }
+  if ((data.brokenLinks || 0) > 0) {
+    issues.push({ severity: 95, issue: `Broken links (${data.brokenLinks})`, impact: 'Critical', detail: 'Fix all broken internal and external links.' });
+  }
+  if ((data.accessibility?.missingAlt || 0) > 0) {
+    issues.push({ severity: 70, issue: `Missing alt text (${data.accessibility.missingAlt})`, impact: 'Medium', detail: 'Add alt attributes to all images for accessibility.' });
+  }
+  if (!data.maybeMobileFriendly) {
+    issues.push({ severity: 60, issue: 'Missing mobile viewport', impact: 'Medium', detail: 'Use a mobile viewport meta tag to improve mobile rendering.' });
+  }
+  if (!data.robots) {
+    issues.push({ severity: 50, issue: 'Missing robots meta tag', impact: 'Low', detail: 'Add a robots meta tag or allow search engines to crawl the page.' });
+  }
+  if (data.robotsAndSitemap?.sitemapStatus !== 200 && data.robotsAndSitemap?.sitemapTxtStatus !== 200) {
+    issues.push({ severity: 65, issue: 'No sitemap found', impact: 'Medium', detail: 'Add sitemap.xml or sitemap.txt to the site root.' });
+  }
+  if (data.googleAnalytics && !data.googleAnalytics.found) {
+    issues.push({ severity: 30, issue: 'Google Analytics not detected', impact: 'Low', detail: 'Install Google Analytics if tracking is required.' });
+  }
+  return issues.sort((a, b) => b.severity - a.severity);
 };
 
 const generateSeoPreview = (meta) => {
@@ -257,6 +362,37 @@ export default async function handler(req, res) {
 
     const roText = robots.toLowerCase();
 
+    const pageText = $('body').clone().find('script,style,noscript').remove().end().text();
+    const commonKeywords = extractKeywords(`${title} ${metaDescription} ${pageText}`);
+    const googleAnalytics = detectGoogleAnalytics(html);
+    const titleLength = title.length;
+    const descriptionLength = metaDescription.length;
+    const seoScore = computeSeoScore({
+      title,
+      metaDescription,
+      canonical,
+      headingIssues: headingsIssues,
+      accessibility: { missingAlt: images.filter((i) => !i.alt).length },
+      maybeMobileFriendly: checkPhoneViewport,
+      robots: roText,
+      robotsAndSitemap,
+      brokenLinks: brokenLinks.length,
+      linkSummary: { internal: internalLinks.length, external: externalLinks.length, total: linkDetails.length }
+    });
+    const issuesToFix = buildIssues({
+      title,
+      metaDescription,
+      canonical,
+      headingIssues: headingsIssues,
+      accessibility: { missingAlt: images.filter((i) => !i.alt).length },
+      maybeMobileFriendly: checkPhoneViewport,
+      robots: roText,
+      robotsAndSitemap,
+      brokenLinks: brokenLinks.length,
+      linkSummary: { internal: internalLinks.length, external: externalLinks.length, total: linkDetails.length },
+      googleAnalytics
+    });
+
     pageData = {
       url: targetUrl,
       finalUrl,
@@ -306,6 +442,12 @@ export default async function handler(req, res) {
         twitter: Boolean(social.twitter.title && social.twitter.image && social.twitter.description)
       },
       structuredPreview: { topLine: `${title} - ${metaDescription.slice(0, 180)}`, url: finalUrl },
+      seoScore,
+      issuesToFix,
+      commonKeywords,
+      googleAnalytics,
+      titleLength,
+      descriptionLength,
       headless: headlessData,
       rawHTML: html
     };
